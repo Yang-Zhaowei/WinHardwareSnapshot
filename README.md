@@ -71,7 +71,7 @@ HardwareInventory_*/
 └── hardware_inventory.json
 ```
 
-The snapshot covers major system and hardware information including CPU, memory, GPU, motherboard, BIOS, storage, network hardware, PCI/USB controllers, TPM, Secure Boot and virtualization.
+The snapshot covers major system and hardware information including CPU, memory, GPU, motherboard, BIOS, physical disks, partitions, volumes and drive-letter mapping, network hardware, PCI/USB controllers, TPM, Secure Boot and virtualization.
 
 Administrator privileges are optional, but some storage reliability information may otherwise be unavailable.
 
@@ -98,7 +98,8 @@ No additional PowerShell modules are required.
 
 `v1.2.0` is the current stable baseline.
 
-Hardware topology mapping is being improved incrementally. Physical PCIe slot and SATA port information depends on what Windows, firmware and device drivers expose.
+Hierarchical disk-partition-volume mapping is available.
+Physical PCIe slot and SATA port mapping is still best-effort and depends on what Windows, firmware and device drivers expose.
 
 ## License
 
