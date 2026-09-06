@@ -71,7 +71,7 @@ HardwareInventory_*/
 └── hardware_inventory.json
 ```
 
-快照覆盖 CPU、内存、GPU、主板、BIOS、存储、网络硬件、PCI/USB 控制器、TPM、Secure Boot、虚拟化等主要系统与硬件信息。
+快照覆盖 CPU、内存、GPU、主板、BIOS、物理磁盘、分区、卷及盘符映射、网络硬件、PCI/USB 控制器、TPM、Secure Boot、虚拟化等主要系统与硬件信息。
 
 管理员权限并非必须，但部分存储可靠性信息在普通权限下可能无法获取。
 
@@ -98,7 +98,9 @@ HardwareInventory_*/
 
 `v1.2.0` 是当前稳定基线。
 
-后续将逐步完善硬件拓扑映射。PCIe 物理插槽、SATA 物理端口等信息的可识别程度取决于 Windows、固件与设备驱动实际暴露的数据。
+已支持物理磁盘—分区—卷/盘符的层级映射。
+
+PCIe 物理插槽和 SATA 物理端口映射仍属于 best-effort，取决于 Windows、固件和驱动实际暴露的信息。
 
 ## License
 
