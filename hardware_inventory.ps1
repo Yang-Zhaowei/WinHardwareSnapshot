@@ -114,6 +114,28 @@ function Add-InventorySection {
     $script:Inventory[$Title] = $Data
 }
 
+function ConvertTo-NullableDriveLetter {
+    param(
+        $DriveLetter
+    )
+
+    if ($null -eq $DriveLetter) {
+        return $null
+    }
+
+    if ($DriveLetter -eq [char]0) {
+        return $null
+    }
+
+    $Value = [string]$DriveLetter
+
+    if ([string]::IsNullOrWhiteSpace($Value)) {
+        return $null
+    }
+
+    return $Value
+}
+
 
 function Write-Section {
     param(
@@ -139,6 +161,139 @@ function Write-Section {
         Out-File $TxtFile -Append -Encoding UTF8
 }
 
+function Write-StorageMappingSection {
+    param(
+        $Data
+    )
+
+    @(
+        ""
+        "============================================================"
+        "STORAGE MAPPING"
+        "============================================================"
+    ) | Out-File $TxtFile -Append -Encoding UTF8
+
+    if ($null -eq $Data -or @($Data).Count -eq 0) {
+        "Not available" |
+            Out-File $TxtFile -Append -Encoding UTF8
+        return
+    }
+
+    foreach ($Disk in $Data) {
+
+        "Disk $($Disk.DiskNumber)" |
+            Out-File $TxtFile -Append -Encoding UTF8
+
+        "  Model          : $($Disk.FriendlyName)" |
+            Out-File $TxtFile -Append -Encoding UTF8
+
+        if ($null -ne $Disk.PSObject.Properties["SerialNumber"]) {
+            "  Serial         : $($Disk.SerialNumber)" |
+                Out-File $TxtFile -Append -Encoding UTF8
+        }
+
+        "  Bus            : $($Disk.BusType)" |
+            Out-File $TxtFile -Append -Encoding UTF8
+
+        "  PartitionStyle : $($Disk.PartitionStyle)" |
+            Out-File $TxtFile -Append -Encoding UTF8
+
+        "  Capacity       : $($Disk.CapacityTB) TB" |
+            Out-File $TxtFile -Append -Encoding UTF8
+
+        "  Boot/System    : $($Disk.IsBoot) / $($Disk.IsSystem)" |
+            Out-File $TxtFile -Append -Encoding UTF8
+
+        $Partitions = @($Disk.Partitions)
+
+        if ($Partitions.Count -eq 0) {
+            "  - No partitions" |
+                Out-File $TxtFile -Append -Encoding UTF8
+            continue
+        }
+
+        for ($i = 0; $i -lt $Partitions.Count; $i++) {
+
+            $Partition = $Partitions[$i]
+
+            $Prefix = "  -"
+
+            $Details = @()
+
+            $Details += "Partition $($Partition.PartitionNumber)"
+
+            if (
+                -not [string]::IsNullOrWhiteSpace(
+                    [string]$Partition.DriveLetter
+                )
+            ) {
+                $Details += "$($Partition.DriveLetter):"
+            }
+
+            if (
+                -not [string]::IsNullOrWhiteSpace(
+                    [string]$Partition.Role
+                )
+            ) {
+                $Details += $Partition.Role
+            }
+
+            $Details += "$($Partition.SizeGiB) GiB"
+
+            if (
+                -not [string]::IsNullOrWhiteSpace(
+                    [string]$Partition.FileSystem
+                )
+            ) {
+                $Details += $Partition.FileSystem
+            }
+
+            "$Prefix $($Details -join ' | ')" |
+                Out-File $TxtFile -Append -Encoding UTF8
+        }
+
+        "" | Out-File $TxtFile -Append -Encoding UTF8
+    }
+}
+
+function Get-PartitionRole {
+    param(
+        $Partition
+    )
+
+    $GptType = [string]$Partition.GptType
+
+    if (-not [string]::IsNullOrWhiteSpace($GptType)) {
+        $GptType = $GptType.Trim("{}").ToLowerInvariant()
+    }
+
+    switch ($GptType) {
+
+        "c12a7328-f81f-11d2-ba4b-00a0c93ec93b" {
+            return "EFI System"
+        }
+
+        "e3c9e316-0b5c-4db8-817d-f92df00215ae" {
+            return "Microsoft Reserved"
+        }
+
+        "ebd0a0a2-b9e5-4433-87c0-68b6b72699c7" {
+            return "Microsoft Basic Data"
+        }
+
+        "de94bba4-06d1-4d40-a16a-bfd50179d6ac" {
+            return "Windows Recovery"
+        }
+    }
+
+    if (-not [string]::IsNullOrWhiteSpace(
+        [string]$Partition.Type
+    )) {
+        return [string]$Partition.Type
+    }
+
+    return "Unknown"
+}
 
 function Get-MemoryTypeName {
     param([int]$SMBIOSMemoryType)
@@ -446,6 +601,115 @@ $StorageDevices = $PhysicalDiskObjects | ForEach-Object {
 
 Add-InventorySection "STORAGE DEVICES" $StorageDevices
 
+# ============================================================
+# STORAGE MAPPING
+# ============================================================
+
+$DiskObjects = Get-Disk | Sort-Object Number
+
+$StorageMapping = foreach ($Disk in $DiskObjects) {
+
+    $DiskData = [ordered]@{
+        DiskNumber     = $Disk.Number
+        FriendlyName   = $Disk.FriendlyName
+        BusType        = [string]$Disk.BusType
+        PartitionStyle = [string]$Disk.PartitionStyle
+        SizeBytes      = [uint64]$Disk.Size
+        CapacityGB     = [math]::Round(
+            $Disk.Size / 1000000000,
+            2
+        )
+        CapacityTB     = [math]::Round(
+            $Disk.Size / 1000000000000,
+            2
+        )
+        IsBoot          = $Disk.IsBoot
+        IsSystem        = $Disk.IsSystem
+    }
+
+    if (-not $PrivacyMode) {
+        $DiskData["SerialNumber"] = $Disk.SerialNumber
+    }
+
+    $PartitionData = @(
+        Get-Partition -DiskNumber $Disk.Number |
+            Sort-Object PartitionNumber |
+            ForEach-Object {
+
+                $Partition = $_
+
+                $PartitionRole = Get-PartitionRole -Partition $Partition
+
+                $Volume =
+                    $Partition |
+                    Get-Volume -ErrorAction SilentlyContinue |
+                    Select-Object -First 1
+
+                $DriveLetter = ConvertTo-NullableDriveLetter `
+                    -DriveLetter $Partition.DriveLetter
+
+                $Data = [ordered]@{
+                    PartitionNumber      = $Partition.PartitionNumber
+                    DriveLetter          = $DriveLetter
+                    Type                 = $Partition.Type
+                    Role                 = $PartitionRole
+                    SizeBytes            = [uint64]$Partition.Size
+                    SizeGiB              = [math]::Round(
+                        $Partition.Size / 1GB,
+                        2
+                    )
+                    OffsetBytes          = [uint64]$Partition.Offset
+                    GptType              = $Partition.GptType
+                    MbrType              = $Partition.MbrType
+                    IsBoot               = $Partition.IsBoot
+                    IsSystem             = $Partition.IsSystem
+                    IsHidden             = $Partition.IsHidden
+                    IsReadOnly           = $Partition.IsReadOnly
+                    NoDefaultDriveLetter = $Partition.NoDefaultDriveLetter
+                }
+
+                if ($Volume) {
+
+                    $Data["FileSystem"] =
+                        $Volume.FileSystem
+
+                    $Data["VolumeHealth"] =
+                        $Volume.HealthStatus
+
+                    $Data["VolumeSizeBytes"] =
+                        [uint64]$Volume.Size
+
+                    $Data["VolumeSizeGiB"] =
+                        [math]::Round(
+                            $Volume.Size / 1GB,
+                            2
+                        )
+
+                    $Data["FreeBytes"] =
+                        [uint64]$Volume.SizeRemaining
+
+                    $Data["FreeGiB"] =
+                        [math]::Round(
+                            $Volume.SizeRemaining / 1GB,
+                            2
+                        )
+
+                    if (-not $PrivacyMode) {
+                        $Data["FileSystemLabel"] =
+                            $Volume.FileSystemLabel
+                    }
+                }
+
+                [PSCustomObject]$Data
+            }
+    )
+
+    $DiskData["Partitions"] = $PartitionData
+
+    [PSCustomObject]$DiskData
+}
+
+Add-InventorySection "STORAGE MAPPING" $StorageMapping
 
 # ============================================================
 # STORAGE RELIABILITY
@@ -859,6 +1123,11 @@ $Report["COMPLETE"] = $CompleteInfo
 foreach ($Key in $Report.Keys) {
 
     if ($Key -eq "COMPLETE") {
+        continue
+    }
+
+    if ($Key -eq "STORAGE MAPPING") {
+        Write-StorageMappingSection $Report[$Key]
         continue
     }
 
